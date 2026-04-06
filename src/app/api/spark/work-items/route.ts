@@ -8,15 +8,24 @@ interface OwnerData {
   position: string;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const client = getSupabaseClient();
-    
-    // 获取所有需求
-    const { data: workItems, error: workItemsError } = await client
+    const { searchParams } = new URL(request.url);
+    const limitRaw = searchParams.get('limit');
+    const limit =
+      limitRaw !== null && limitRaw !== '' ? parseInt(limitRaw, 10) : NaN;
+
+    let query = client
       .from('work_items')
       .select('id, title, description, status, created_at, owner_id')
       .order('created_at', { ascending: false });
+
+    if (!Number.isNaN(limit) && limit > 0) {
+      query = query.limit(Math.min(limit, 100));
+    }
+
+    const { data: workItems, error: workItemsError } = await query;
 
     if (workItemsError) {
       throw new Error(`查询需求失败: ${workItemsError.message}`);

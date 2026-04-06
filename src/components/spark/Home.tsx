@@ -158,7 +158,7 @@ export default function SparkHome() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
           </div>
-          <p className="text-muted-foreground">星火汇聚中...</p>
+          <p className="text-muted-foreground">正在加载...</p>
         </div>
       </div>
     );

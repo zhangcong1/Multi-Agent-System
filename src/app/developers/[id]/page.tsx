@@ -13,6 +13,7 @@ import { useRouter, useParams } from 'next/navigation';
 import { format } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
 import { KanbanLayout } from '@/components/kanban/Sidebar';
+import { APP_DISPLAY_NAME } from '@/lib/app-brand';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
@@ -325,7 +326,7 @@ function OverviewPanel({
           <div>
             <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-primary/85">
               <Sparkles className="h-3 w-3" aria-hidden />
-              星火 · 概览
+              {APP_DISPLAY_NAME} · 概览
             </p>
             <h2 className="mt-1 text-lg font-bold text-foreground sm:text-xl">当日工作台统计</h2>
             <p className="mt-0.5 text-xs text-muted-foreground">
@@ -1059,7 +1060,7 @@ export default function DeveloperDetailPage() {
 
                 <Separator className="opacity-40" />
                 <p className="text-center text-[10px] text-muted-foreground">
-                  数据来自星火流水线（work_items / pipeline_runs / step_runs），与需求看板保持一致。
+                  数据来自研发流水线（work_items / pipeline_runs / step_runs），与需求看板保持一致。
                 </p>
               </div>
             </div>

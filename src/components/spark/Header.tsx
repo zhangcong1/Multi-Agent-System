@@ -6,6 +6,7 @@ import { Flame, Home, Users, FolderKanban, Search } from 'lucide-react';
 import { ThemeToggle } from './ThemeToggle';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { APP_DISPLAY_NAME } from '@/lib/app-brand';
 
 interface HeaderProps {
   onSearch?: (query: string) => void;
@@ -31,7 +32,7 @@ export default function Header({ onSearch, searchQuery = '' }: HeaderProps) {
               <Flame className="w-5 h-5 text-white" />
               <div className="absolute inset-0 rounded-lg spark-glow opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
-            <span className="text-xl font-bold spark-text-gradient">星火</span>
+            <span className="text-xl font-bold spark-text-gradient">{APP_DISPLAY_NAME}</span>
           </Link>
 
           {/* 导航 */}

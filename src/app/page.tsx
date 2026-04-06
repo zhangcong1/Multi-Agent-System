@@ -2,29 +2,31 @@
 
 import { useEffect, useState } from 'react';
 import { KanbanLayout } from '@/components/kanban/Sidebar';
-import { 
-  Users, 
-  Bot, 
-  FolderKanban, 
+import HomeHero from '@/components/spark/HomeHero';
+import RecentActivityStrip, {
+  type ActivityItem,
+} from '@/components/spark/RecentActivityStrip';
+import {
+  Users,
+  Bot,
+  FolderKanban,
   TrendingUp,
-  Clock,
   CheckCircle,
   Play,
   ArrowUpRight,
   Activity,
-  ChevronRight
+  ChevronRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-interface Stats {
-  totalProjects: number;
-  runningProjects: number;
-  completedProjects: number;
-  waitingProjects: number;
+interface SparkStats {
+  totalWorkItems: number;
+  runningCount: number;
+  doneCount: number;
+  waitingApprovalCount: number;
+  failedCount: number;
   totalDevelopers: number;
-  activeDevelopers: number;
-  totalExperts: number;
-  activeExperts: number;
+  totalAIWorkers: number;
 }
 
 interface Project {
@@ -37,6 +39,13 @@ interface Project {
   experts: { name: string; position: string }[];
   updatedAt: string;
 }
+
+const statusStageLabel: Record<string, string> = {
+  RUNNING: '执行中',
+  WAITING_APPROVAL: '待确认',
+  DONE: '已完成',
+  FAILED: '已失败',
+};
 
 // 进度环组件
 function ProgressRing({ 
@@ -205,36 +214,68 @@ function ProjectCard({ project, index }: { project: Project; index: number }) {
 }
 
 export default function HomePage() {
-  const [stats, setStats] = useState<Stats | null>(null);
+  const [stats, setStats] = useState<SparkStats | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [activities, setActivities] = useState<ActivityItem[]>([]);
+  const [activityLoading, setActivityLoading] = useState(true);
+  const [lastSynced, setLastSynced] = useState<Date | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchData() {
       try {
-        const [statsRes, projectsRes] = await Promise.all([
+        const [statsRes, projectsRes, activityRes] = await Promise.all([
           fetch('/api/spark/stats'),
-          fetch('/api/spark/work-items?limit=6')
+          fetch('/api/spark/work-items?limit=6'),
+          fetch('/api/spark/recent-activity'),
         ]);
-        
+
         const statsJson = await statsRes.json();
         const projectsJson = await projectsRes.json();
-        
+        const activityJson = await activityRes.json();
+
         if (statsJson.success) setStats(statsJson.data);
+        setLastSynced(new Date());
+
+        if (activityJson.success) {
+          setActivities(activityJson.data ?? []);
+        }
+
         if (projectsJson.success) {
-          const projectsWithExperts = projectsJson.data.map((p: Project) => ({
-            ...p,
-            experts: p.experts || [
-              { name: '王工', position: '后端工程师' },
-              { name: '李工', position: '前端工程师' }
-            ]
+          const raw = projectsJson.data as Array<{
+            id: number;
+            title: string;
+            status: string;
+            created_at: string;
+            owner: { name: string; position: string } | null;
+          }>;
+
+          const mapped: Project[] = raw.map((p) => ({
+            id: p.id,
+            title: p.title,
+            status: p.status,
+            progress:
+              p.status === 'DONE'
+                ? 100
+                : p.status === 'FAILED'
+                  ? 0
+                  : p.status === 'WAITING_APPROVAL'
+                    ? 75
+                    : 40,
+            currentStage: statusStageLabel[p.status] ?? p.status,
+            developer: p.owner ? { name: p.owner.name } : null,
+            experts: p.owner
+              ? [{ name: p.owner.name, position: p.owner.position }]
+              : [],
+            updatedAt: p.created_at,
           }));
-          setProjects(projectsWithExperts);
+          setProjects(mapped);
         }
       } catch (err) {
         console.error('加载数据失败:', err);
       } finally {
         setLoading(false);
+        setActivityLoading(false);
       }
     }
     fetchData();
@@ -255,50 +296,62 @@ export default function HomePage() {
     );
   }
 
+  const totalItems = stats?.totalWorkItems ?? 0;
+  const doneCount = stats?.doneCount ?? 0;
+  const completionPct =
+    totalItems > 0 ? Math.round((doneCount / totalItems) * 100) : 0;
+
   return (
     <KanbanLayout>
-      <div className="p-8 space-y-8">
-        {/* 标题区域 */}
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">工作概览</h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            团队协作 · 项目进度 · 工作动态
-          </p>
-        </div>
+      <div className="space-y-8 p-8">
+        <HomeHero
+          stats={
+            stats
+              ? {
+                  runningCount: stats.runningCount,
+                  waitingApprovalCount: stats.waitingApprovalCount,
+                  totalWorkItems: stats.totalWorkItems,
+                }
+              : null
+          }
+          syncedAt={lastSynced}
+        />
+
+        <RecentActivityStrip items={activities} loading={activityLoading} />
 
         {/* 统计卡片 */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-          <StatCard 
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-4">
+          <StatCard
             icon={FolderKanban}
-            label="项目总数"
-            value={stats?.totalProjects || 0}
-            subValue={`${stats?.runningProjects || 0} 个进行中`}
+            label="需求总数"
+            value={stats?.totalWorkItems || 0}
+            subValue={`${stats?.runningCount || 0} 个进行中`}
             color="bg-primary"
-            trend={12}
             index={0}
           />
-          <StatCard 
+          <StatCard
             icon={CheckCircle}
             label="已完成"
-            value={stats?.completedProjects || 0}
-            subValue="本周期"
+            value={stats?.doneCount || 0}
+            subValue={
+              totalItems > 0 ? `全库约 ${completionPct}%` : '暂无需求'
+            }
             color="bg-green-600"
-            trend={8}
             index={1}
           />
-          <StatCard 
+          <StatCard
             icon={Users}
-            label="开发者"
+            label="人工作者"
             value={stats?.totalDevelopers || 0}
-            subValue={`${stats?.activeDevelopers || 0} 位在线`}
+            subValue="真实员工"
             color="bg-blue-600"
             index={2}
           />
-          <StatCard 
+          <StatCard
             icon={Bot}
-            label="专家团队"
-            value={stats?.totalExperts || 0}
-            subValue={`${stats?.activeExperts || 0} 位可调度`}
+            label="AI 数字人"
+            value={stats?.totalAIWorkers || 0}
+            subValue="可参与流水线步骤"
             color="bg-cyan-600"
             index={3}
           />
@@ -332,12 +385,10 @@ export default function HomePage() {
               <h3 className="text-sm font-medium text-foreground mb-4">整体进度</h3>
               <div className="flex items-center justify-center">
                 <div className="relative">
-                  <ProgressRing progress={stats?.totalProjects ? Math.round((stats.completedProjects / stats.totalProjects) * 100) : 0} size={120} strokeWidth={10} />
+                  <ProgressRing progress={completionPct} size={120} strokeWidth={10} />
                   <div className="absolute inset-0 flex items-center justify-center">
                     <div className="text-center">
-                      <p className="text-2xl font-bold">
-                        {stats?.totalProjects ? Math.round((stats.completedProjects / stats.totalProjects) * 100) : 0}%
-                      </p>
+                      <p className="text-2xl font-bold">{completionPct}%</p>
                       <p className="text-xs text-muted-foreground">完成率</p>
                     </div>
                   </div>
@@ -345,15 +396,15 @@ export default function HomePage() {
               </div>
               <div className="mt-4 grid grid-cols-3 gap-2 text-center">
                 <div className="p-2 rounded-lg bg-muted/30">
-                  <p className="text-lg font-bold text-blue-600">{stats?.runningProjects || 0}</p>
+                  <p className="text-lg font-bold text-blue-600">{stats?.runningCount || 0}</p>
                   <p className="text-xs text-muted-foreground">进行中</p>
                 </div>
                 <div className="p-2 rounded-lg bg-muted/30">
-                  <p className="text-lg font-bold text-amber-600">{stats?.waitingProjects || 0}</p>
+                  <p className="text-lg font-bold text-amber-600">{stats?.waitingApprovalCount || 0}</p>
                   <p className="text-xs text-muted-foreground">待确认</p>
                 </div>
                 <div className="p-2 rounded-lg bg-muted/30">
-                  <p className="text-lg font-bold text-green-600">{stats?.completedProjects || 0}</p>
+                  <p className="text-lg font-bold text-green-600">{stats?.doneCount || 0}</p>
                   <p className="text-xs text-muted-foreground">已完成</p>
                 </div>
               </div>

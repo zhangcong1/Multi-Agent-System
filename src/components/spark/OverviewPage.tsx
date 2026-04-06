@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Header from './Header';
 import { Users, FolderKanban, Play, CheckCircle, Clock, TrendingUp, ArrowRight, Zap } from 'lucide-react';
+import { APP_DISPLAY_NAME } from '@/lib/app-brand';
 
 interface Stats {
   totalWorkers: number;
@@ -307,9 +308,9 @@ export default function OverviewPage() {
         {/* 欢迎区域 */}
         <div className="text-center space-y-2">
           <h1 className="text-3xl font-bold">
-            <span className="spark-text-gradient">星火</span> · 研发协作平台
+            <span className="spark-text-gradient">{APP_DISPLAY_NAME}</span>
           </h1>
-          <p className="text-muted-foreground">实时追踪研发流程，洞见每一星火的光芒</p>
+          <p className="text-muted-foreground">实时追踪研发流程，掌握每一步进展</p>
         </div>
 
         {/* 统计卡片 */}
