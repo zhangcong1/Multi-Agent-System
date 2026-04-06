@@ -87,5 +87,4 @@
 
 - **主题**：深色科技风（背景 #1A1A1F，强调色紫色）
 - **圆角**：中等圆角（0.75rem）
-- **动画**：spark-glow 发光、spark-pulse 脉冲、fade-in-up 渐入
 - **组件**：shadcn/ui + lucide-react 图标

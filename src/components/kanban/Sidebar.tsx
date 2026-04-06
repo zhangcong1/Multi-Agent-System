@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { 
   Sparkles, 
   LayoutDashboard, 
@@ -14,7 +14,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Moon,
-  Sun
+  Sun,
+  LogOut
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -43,7 +44,13 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const [theme, setTheme] = React.useState<'light' | 'dark'>('light');
+  const [sessionUser, setSessionUser] = React.useState<{
+    displayName: string;
+    upn: string;
+  } | null>(null);
+  const [authEnabled, setAuthEnabled] = React.useState(false);
 
   React.useEffect(() => {
     const stored = localStorage.getItem('theme') as 'light' | 'dark' | null;
@@ -52,6 +59,27 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       document.documentElement.classList.toggle('dark', stored === 'dark');
     }
   }, []);
+
+  React.useEffect(() => {
+    fetch('/api/auth/me')
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.success && json.data?.enabled && json.data?.user) {
+          setAuthEnabled(true);
+          setSessionUser(json.data.user);
+        } else {
+          setAuthEnabled(Boolean(json.data?.enabled));
+          setSessionUser(null);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const logout = async () => {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    router.push('/login');
+    router.refresh();
+  };
 
   const toggleTheme = () => {
     const newTheme = theme === 'light' ? 'dark' : 'light';
@@ -174,18 +202,38 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           <div className="relative">
             <Avatar className="w-9 h-9 ring-2 ring-background shadow-md">
               <AvatarFallback className="bg-gradient-to-br from-violet-500 to-purple-500 text-white text-sm font-medium">
-                张
+                {(sessionUser?.displayName || '访').slice(0, 1)}
               </AvatarFallback>
             </Avatar>
             <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 ring-2 ring-background" />
           </div>
           {!collapsed && (
             <div className="flex-1 min-w-0 animate-fade-in-up">
-              <p className="text-sm font-medium text-foreground truncate">张明</p>
-              <p className="text-xs text-muted-foreground">全栈工程师</p>
+              <p className="text-sm font-medium text-foreground truncate">
+                {sessionUser?.displayName || '访客'}
+              </p>
+              <p className="text-xs text-muted-foreground truncate">
+                {sessionUser?.upn || '本地浏览'}
+              </p>
             </div>
           )}
         </div>
+
+        {authEnabled && sessionUser && (
+          <Button
+            variant="ghost"
+            size={collapsed ? 'icon' : 'sm'}
+            onClick={logout}
+            className={cn(
+              'text-muted-foreground hover:text-foreground hover:bg-accent',
+              collapsed ? 'w-9 h-9 mt-2 mx-auto' : 'w-full mt-2 justify-start gap-2'
+            )}
+            title="退出登录"
+          >
+            <LogOut className="w-4 h-4" />
+            {!collapsed && <span className="text-sm">退出登录</span>}
+          </Button>
+        )}
         
         {/* 主题切换 */}
         {!collapsed && (

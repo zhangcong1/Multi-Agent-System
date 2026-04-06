@@ -1,392 +1,765 @@
 'use client';
 
-import { useState } from 'react';
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ComponentType,
+} from 'react';
+import Link from 'next/link';
 import { useRouter, useParams } from 'next/navigation';
+import { format } from 'date-fns';
+import { zhCN } from 'date-fns/locale';
 import { KanbanLayout } from '@/components/kanban/Sidebar';
-import { 
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Separator } from '@/components/ui/separator';
+import {
+  AlertCircle,
   ArrowLeft,
-  CheckCircle,
-  Circle,
-  Play,
-  Calendar,
+  BarChart3,
+  Calendar as CalendarIcon,
+  CalendarDays,
+  Check,
   Clock,
-  ChevronLeft,
-  ChevronRight,
-  Bot,
-  Trophy,
-  Code,
-  TrendingUp,
-  Award
+  ExternalLink,
+  GitBranch,
+  ListTodo,
+  Loader2,
+  Pause,
+  Play,
+  Sparkles,
+  Target,
+  X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-// 角色配置
-const roleConfig: Record<string, { gradient: string; bgGradient: string; glowColor: string }> = {
-  '产品经理': { 
-    gradient: 'from-violet-500 to-purple-500', 
-    bgGradient: 'from-violet-500/20 to-purple-500/20',
-    glowColor: 'rgba(139, 92, 246, 0.4)'
-  },
-  'UI设计师': { 
-    gradient: 'from-pink-500 to-rose-500', 
-    bgGradient: 'from-pink-500/20 to-rose-500/20',
-    glowColor: 'rgba(236, 72, 153, 0.4)'
-  },
-  '全栈工程师': { 
-    gradient: 'from-blue-500 to-cyan-500', 
-    bgGradient: 'from-blue-500/20 to-cyan-500/20',
-    glowColor: 'rgba(59, 130, 246, 0.4)'
-  },
-  '后端工程师': { 
-    gradient: 'from-green-500 to-emerald-500', 
-    bgGradient: 'from-green-500/20 to-emerald-500/20',
-    glowColor: 'rgba(34, 197, 94, 0.4)'
-  },
-  '前端工程师': { 
-    gradient: 'from-orange-500 to-amber-500', 
-    bgGradient: 'from-orange-500/20 to-amber-500/20',
-    glowColor: 'rgba(249, 115, 22, 0.4)'
-  },
-  '测试工程师': { 
-    gradient: 'from-teal-500 to-cyan-500', 
-    bgGradient: 'from-teal-500/20 to-cyan-500/20',
-    glowColor: 'rgba(20, 184, 166, 0.4)'
-  },
+type Assignee = { id: number; name: string; position: string } | null;
+
+type StepPayload = {
+  id: number;
+  step_name: string;
+  step_order: number;
+  status: string;
+  worker_id: number;
+  assignee: Assignee;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string | null;
 };
 
-// Agent配置
-const agentConfig: Record<string, { color: string; avatar: string }> = {
-  'Agent-2': { color: 'from-blue-500 to-indigo-500', avatar: '🤖' },
-  'Agent-3': { color: 'from-purple-500 to-pink-500', avatar: '🧠' },
-  'Agent-4': { color: 'from-emerald-500 to-teal-500', avatar: '⚡' },
+type WorkItemPayload = {
+  id: number;
+  title: string;
+  description: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string | null;
+  owner_id: number;
+  is_owner: boolean;
+  pipeline_run: {
+    id: number;
+    status: string;
+    total_steps: number;
+    completed_steps: number;
+    started_at: string | null;
+    completed_at: string | null;
+  } | null;
+  steps: StepPayload[];
+  current_step_name: string | null;
+  progress_percent: number;
 };
 
-// 模拟开发者数据
-const mockDeveloper = {
-  id: 1,
-  name: '张明',
-  position: '全栈工程师',
-  online: true,
-  techStack: ['React', 'TypeScript', 'Node.js', 'PostgreSQL'],
-  achievements: [
-    { icon: '✅', label: '完成3个需求', highlight: true },
-    { icon: '⚡', label: '连续5天完成任务' },
-    { icon: '🎯', label: '目标达成率96%' },
-  ],
-  weeklyStats: {
-    workHours: 38.5,
-    targetHours: 40,
-    dailyHours: [
-      { day: '周一', hours: 8.5 },
-      { day: '周二', hours: 7.0 },
-      { day: '周三', hours: 9.0, isToday: true },
-      { day: '周四', hours: 7.5 },
-      { day: '周五', hours: 6.5 },
-    ],
-    topAgent: { name: 'Agent-2', count: 15 },
-  },
+type WorkerPayload = {
+  id: number;
+  employee_id: string;
+  name: string;
+  position: string;
+  avatar_url: string | null;
+  type: string;
 };
 
-// 周数据
-const weeksData = [
-  {
-    weekLabel: '本周',
-    weekRange: '1月15日 - 1月21日',
-    requirements: [
-      { 
-        id: 1, 
-        title: '用户登录功能', 
-        description: '实现用户登录、注册、找回密码等核心功能',
-        startTime: '01-15 09:00',
-        deadline: '01-17 18:00',
-        currentStageIndex: 2,
-        currentStageProgress: 60,
-        stages: [
-          { name: '需求分析', completed: true, agent: 'Agent-2' },
-          { name: '方案评审', completed: true, agent: 'Agent-3' },
-          { name: '代码开发', completed: false, running: true, progress: 60, agent: 'Agent-2' },
-          { name: '代码检查', completed: false, agent: 'Agent-2' },
-          { name: '测试验证', completed: false, agent: 'Agent-4' },
-        ],
-        agent: 'Agent-2',
-      },
-      { 
-        id: 2, 
-        title: '数据导出功能', 
-        description: '支持Excel、CSV、PDF多格式数据导出',
-        startTime: '01-16 10:00',
-        deadline: '01-18 18:00',
-        currentStageIndex: 1,
-        currentStageProgress: 74,
-        stages: [
-          { name: '需求分析', completed: true, agent: 'Agent-2' },
-          { name: '方案评审', completed: false, running: true, progress: 74, agent: 'Agent-3' },
-          { name: '代码开发', completed: false, agent: 'Agent-2' },
-          { name: '测试验证', completed: false, agent: 'Agent-4' },
-        ],
-        agent: 'Agent-3',
-      },
-      { 
-        id: 3, 
-        title: '报表优化', 
-        description: '优化现有报表性能，提升加载速度',
-        startTime: '01-14 09:00',
-        deadline: '01-17 12:00',
-        currentStageIndex: 3,
-        currentStageProgress: 80,
-        stages: [
-          { name: '需求分析', completed: true, agent: 'Agent-2' },
-          { name: '方案评审', completed: true, agent: 'Agent-3' },
-          { name: '代码开发', completed: true, agent: 'Agent-2' },
-          { name: '测试验证', completed: false, running: true, progress: 80, agent: 'Agent-4' },
-        ],
-        agent: 'Agent-2',
-      },
-    ],
-    completedRequirements: [
-      { id: 4, title: '权限管理系统', duration: '3天', agent: 'Agent-2, Agent-3' },
-      { id: 5, title: '消息推送功能', duration: '5天', agent: 'Agent-2' },
-    ],
-  },
-  {
-    weekLabel: '上周',
-    weekRange: '1月8日 - 1月14日',
-    requirements: [],
-    completedRequirements: [
-      { id: 6, title: '用户管理模块', duration: '3天', agent: 'Agent-2' },
-      { id: 7, title: 'API接口优化', duration: '2天', agent: 'Agent-3' },
-      { id: 8, title: '数据库迁移', duration: '1天', agent: 'Agent-2' },
-    ],
-  },
-  {
-    weekLabel: '第1周',
-    weekRange: '1月1日 - 1月7日',
-    requirements: [],
-    completedRequirements: [
-      { id: 9, title: '项目初始化', duration: '2天', agent: 'Agent-2' },
-    ],
-  },
-];
+function todayYmdLocal(): string {
+  return format(new Date(), 'yyyy-MM-dd');
+}
 
-// 管道进度组件 - 横向管道样式
-function PipelineProgress({ stages, currentStageIndex, currentStageProgress }: { 
-  stages: { name: string; completed: boolean; running?: boolean; progress?: number; agent: string }[];
-  currentStageIndex: number;
-  currentStageProgress: number;
+function parseYmd(ymd: string): Date {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function workItemStatusLabel(status: string): string {
+  const map: Record<string, string> = {
+    RUNNING: '进行中',
+    WAITING_APPROVAL: '待确认',
+    DONE: '已完成',
+    FAILED: '失败',
+  };
+  return map[status] || status;
+}
+
+function stepStatusLabel(status: string): string {
+  const map: Record<string, string> = {
+    PENDING: '待开始',
+    RUNNING: '进行中',
+    WAITING_APPROVAL: '待确认',
+    DONE: '已完成',
+    FAILED: '失败',
+    SKIPPED: '已跳过',
+  };
+  return map[status] || status;
+}
+
+/** 与主题一致：仅用 primary / muted / 必要语义色 */
+function workItemStatusVariant(
+  status: string
+): 'default' | 'secondary' | 'outline' | 'destructive' {
+  if (status === 'FAILED') return 'destructive';
+  if (status === 'WAITING_APPROVAL') return 'secondary';
+  return 'outline';
+}
+
+/** 顶条色带，与需求详情页一致 */
+const statusStripClass: Record<string, string> = {
+  RUNNING: 'bg-primary',
+  WAITING_APPROVAL: 'bg-amber-500',
+  DONE: 'bg-emerald-500',
+  FAILED: 'bg-destructive',
+};
+
+function phaseSubProgress(step: StepPayload): number {
+  if (step.status === 'DONE' || step.status === 'SKIPPED') return 100;
+  if (step.status === 'RUNNING') return 72;
+  if (step.status === 'WAITING_APPROVAL') return 45;
+  return 0;
+}
+
+function stepActivityText(step: StepPayload): string {
+  switch (step.status) {
+    case 'RUNNING':
+      return '环节执行中，请关注产出与流水线日志。';
+    case 'WAITING_APPROVAL':
+      return '待确认本环节交付物或评审结论。';
+    case 'PENDING':
+      return '尚未开始，等待上游环节完成。';
+    case 'FAILED':
+      return '环节执行失败，请在完整详情中查看错误信息。';
+    default:
+      return '—';
+  }
+}
+
+function UserProfilePanel({
+  worker,
+  collaborators,
+  viewLabel,
+}: {
+  worker: WorkerPayload;
+  collaborators: { id: number; name: string; position: string }[];
+  viewLabel: string;
 }) {
-  // 计算整体进度
-  const totalProgress = Math.round(
-    (currentStageIndex / stages.length) * 100 + 
-    (currentStageProgress / stages.length)
-  );
-
   return (
-    <div className="mt-4 w-full">
-      {/* 阶段管道 - 使用 flex 实现等宽分布 */}
-      <div className="flex items-start justify-between w-full pb-4">
-        {stages.map((stage, idx) => {
-          const isCompleted = stage.completed;
-          const isRunning = stage.running;
-          const isLast = idx === stages.length - 1;
-          
-          return (
-            <div key={idx} className="flex flex-col items-center relative flex-1 min-w-0">
-              {/* 连接线（在节点左侧，除了第一个） */}
-              {idx > 0 && (
-                <div 
-                  className="absolute top-6 right-1/2 w-1/2 h-0.5 -z-10"
-                  style={{ 
-                    background: stages[idx - 1].completed 
-                      ? '#22c55e' 
-                      : '#e5e7eb'
-                  }}
-                />
-              )}
-              
-              {/* 连接线（在节点右侧，除了最后一个） */}
-              {!isLast && (
-                <div 
-                  className="absolute top-6 left-1/2 w-1/2 h-0.5 -z-10"
-                  style={{ 
-                    background: isCompleted 
-                      ? '#22c55e' 
-                      : '#e5e7eb'
-                  }}
-                />
-              )}
-              
-              {/* 头像 */}
-              <div 
-                className={cn(
-                  'w-12 h-12 rounded-full flex items-center justify-center transition-all duration-300 relative z-10',
-                  isCompleted && 'bg-emerald-500 text-white shadow-[0_0_12px_rgba(34,197,94,0.4)]',
-                  isRunning && 'bg-gradient-to-br from-blue-500 to-cyan-500 text-white shadow-[0_0_16px_rgba(59,130,246,0.5)]',
-                  !isCompleted && !isRunning && 'bg-muted border-2 border-border'
-                )}
+    <div
+      className={cn(
+        'stagger-item glass-card relative overflow-hidden rounded-2xl border border-border/70 p-5 sm:p-6',
+        'shadow-[0_8px_30px_-12px_oklch(0.2_0.08_280_/_0.25)] ring-1 ring-primary/[0.12]'
+      )}
+    >
+      <div
+        className="pointer-events-none absolute -right-12 -top-12 h-40 w-40 rounded-full bg-primary/[0.07] blur-3xl dark:bg-primary/[0.12]"
+        aria-hidden
+      />
+      <div className="relative flex flex-col gap-5 sm:flex-row sm:items-start">
+        <div className="relative mx-auto shrink-0 sm:mx-0">
+          <div
+            className={cn(
+              'flex h-[4.5rem] w-[4.5rem] items-center justify-center rounded-2xl',
+              'bg-gradient-to-br from-primary via-primary/90 to-violet-600 text-lg font-bold text-primary-foreground',
+              'shadow-[0_12px_40px_-8px_oklch(0.55_0.22_280_/_0.55)]'
+            )}
+          >
+            {worker.name.slice(0, 2)}
+          </div>
+          <span
+            className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-background bg-emerald-500 shadow-sm"
+            title="在岗"
+            aria-hidden
+          />
+        </div>
+        <div className="min-w-0 flex-1 space-y-3 text-center sm:text-left">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-primary/80">
+              成员档案
+            </p>
+            <h2 className="mt-1 text-xl font-bold tracking-tight text-foreground sm:text-2xl">
+              {worker.name}
+            </h2>
+            <div className="mt-2 flex flex-wrap justify-center gap-2 sm:justify-start">
+              <Badge
+                variant="secondary"
+                className="border border-primary/20 bg-primary/10 text-xs font-medium text-primary"
               >
-                {isCompleted ? (
-                  <CheckCircle className="w-5 h-5" />
-                ) : isRunning ? (
-                  <span className="text-sm font-bold">{stage.progress}%</span>
-                ) : (
-                  <Circle className="w-5 h-5 text-muted-foreground" />
-                )}
-              </div>
-              
-              {/* Agent标签 */}
-              <div className={cn(
-                'mt-2 px-2 py-0.5 rounded text-[10px] font-medium whitespace-nowrap',
-                isCompleted && 'bg-emerald-500/15 text-emerald-600',
-                isRunning && 'bg-primary/15 text-primary',
-                !isCompleted && !isRunning && 'bg-muted/50 text-muted-foreground'
-              )}>
-                {stage.agent}
-              </div>
-              
-              {/* 阶段名称 */}
-              <p className={cn(
-                'mt-1 text-xs font-medium text-center px-1',
-                isCompleted && 'text-emerald-600',
-                isRunning && 'text-primary',
-                !isCompleted && !isRunning && 'text-muted-foreground'
-              )}>
-                {stage.name}
-              </p>
-              {isRunning && (
-                <p className="text-[10px] text-primary/70">进行中</p>
+                {worker.position}
+              </Badge>
+              {worker.type === 'AI' ? (
+                <Badge variant="outline" className="text-xs font-normal">
+                  AI 协作者
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="border-emerald-500/25 text-xs font-normal text-emerald-700 dark:text-emerald-400">
+                  正式成员
+                </Badge>
               )}
             </div>
-          );
-        })}
-      </div>
-      
-      {/* 整体进度条 */}
-      <div className="mt-4 px-2">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-xs text-muted-foreground">开始</span>
-          <span className="text-xs font-medium text-primary">{totalProgress}%</span>
-          <span className="text-xs text-muted-foreground">完成</span>
-        </div>
-        <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-          <div 
-            className="h-full rounded-full bg-gradient-to-r from-primary to-cyan-400 relative overflow-hidden transition-all duration-500"
-            style={{ width: `${totalProgress}%` }}
-          >
-            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-[shimmer_2s_infinite]" />
           </div>
+          <dl className="grid gap-2 text-left text-sm sm:grid-cols-2">
+            <div className="rounded-lg border border-border/50 bg-muted/20 px-3 py-2">
+              <dt className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                工号
+              </dt>
+              <dd className="mt-0.5 font-mono text-sm font-semibold text-foreground">
+                {worker.employee_id}
+              </dd>
+            </div>
+            <div className="rounded-lg border border-border/50 bg-muted/20 px-3 py-2">
+              <dt className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                数据视图
+              </dt>
+              <dd className="mt-0.5 text-xs text-foreground">{viewLabel}</dd>
+            </div>
+          </dl>
+          {collaborators.length > 0 ? (
+            <div className="border-t border-border/50 pt-4">
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                协作伙伴
+              </p>
+              <div className="flex max-h-[5.5rem] flex-wrap gap-1.5 overflow-y-auto pr-1">
+                {collaborators.map((c) => (
+                  <span
+                    key={c.id}
+                    className="inline-flex items-center rounded-md border border-border/60 bg-background/50 px-3 py-1 text-[11px] text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground"
+                  >
+                    <span className="font-medium text-foreground">{c.name}</span>
+                    <span className="ml-1 text-muted-foreground">· {c.position}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
   );
 }
 
-// 需求卡片组件
-function RequirementCard({ requirement, isExpanded, onToggle }: { 
-  requirement: typeof weeksData[0]['requirements'][0];
-  isExpanded: boolean;
-  onToggle: () => void;
+function OverviewStatChip({
+  icon: Icon,
+  label,
+  value,
+  sub,
+  delayMs,
+}: {
+  icon: ComponentType<{ className?: string }>;
+  label: string;
+  value: string | number;
+  sub?: string;
+  delayMs: number;
 }) {
-  const totalProgress = Math.round(
-    (requirement.currentStageIndex / requirement.stages.length) * 100 + 
-    (requirement.currentStageProgress / requirement.stages.length)
-  );
-
   return (
-    <div 
-      className={cn(
-        'group bg-card rounded-xl border transition-all duration-300 cursor-pointer',
-        'hover:shadow-[0_8px_30px_rgba(0,0,0,0.12)] hover:-translate-y-0.5',
-        isExpanded 
-          ? 'border-primary/40 shadow-[0_0_20px_rgba(59,130,246,0.15)]' 
-          : 'border-border hover:border-primary/30'
-      )}
-      onClick={onToggle}
+    <div
+      className="stagger-item rounded-xl border border-border/60 bg-card/50 p-3.5 transition-all duration-300 hover:border-primary/28 hover:bg-primary/[0.04] sm:p-4"
+      style={{ animationDelay: `${delayMs}ms` }}
     >
-      <div className="p-4">
-        <div className="flex items-start justify-between gap-3">
-          {/* 左侧：状态 + 标题 */}
-          <div className="flex items-start gap-3 flex-1 min-w-0">
-            {/* 状态图标 */}
-            <div className={cn(
-              'w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5',
-              'bg-primary/10 border border-primary/20'
-            )}>
-              <Play className="w-4 h-4 text-primary" />
-            </div>
-            
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <h4 className="font-medium text-foreground">{requirement.title}</h4>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
-                  {requirement.stages[requirement.currentStageIndex]?.name}
-                </span>
-                <span className="text-xs text-muted-foreground font-medium">{totalProgress}%</span>
-              </div>
-              <p className="text-sm text-muted-foreground mt-0.5 line-clamp-1">{requirement.description}</p>
-              
-              {/* 时间和协作 */}
-              <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
-                <div className="flex items-center gap-1">
-                  <Clock className="w-3 h-3" />
-                  <span>{requirement.startTime} → {requirement.deadline}</span>
-                </div>
-                <div className="flex items-center gap-1 text-violet-500">
-                  <Bot className="w-3 h-3" />
-                  <span>{requirement.agent}</span>
-                </div>
-              </div>
-            </div>
+      <div className="flex items-start gap-3">
+        <div className="rounded-lg bg-primary/12 p-2 text-primary shadow-inner ring-1 ring-primary/10">
+          <Icon className="h-4 w-4 shrink-0" aria-hidden />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            {label}
+          </p>
+          <p className="mt-0.5 text-2xl font-bold tabular-nums tracking-tight text-gradient">
+            {value}
+          </p>
+          {sub ? <p className="mt-0.5 text-[10px] text-muted-foreground">{sub}</p> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OverviewPanel({
+  workItemsLength,
+  stats,
+  avgProgress,
+  ownerCount,
+  headerDateShort,
+  isToday,
+}: {
+  workItemsLength: number;
+  stats: { running: number; waiting: number; mySteps: number };
+  avgProgress: number;
+  ownerCount: number;
+  headerDateShort: string;
+  isToday: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        'stagger-item glass-card relative overflow-hidden rounded-2xl border border-border/70 p-5 sm:p-6',
+        'ring-1 ring-primary/10'
+      )}
+      style={{ animationDelay: '80ms' }}
+    >
+      <div
+        className="pointer-events-none absolute bottom-0 right-0 h-36 w-36 translate-x-1/3 translate-y-1/3 rounded-full bg-violet-600/[0.06] blur-3xl dark:bg-violet-500/[0.1]"
+        aria-hidden
+      />
+      <div className="relative">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-primary/85">
+              <Sparkles className="h-3 w-3" aria-hidden />
+              星火 · 概览
+            </p>
+            <h2 className="mt-1 text-lg font-bold text-foreground sm:text-xl">当日工作台统计</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {headerDateShort}
+              {isToday ? ' · 今日视图' : ' · 历史视图'}
+            </p>
           </div>
-          
-          {/* 右侧：进度条 + 箭头 */}
-          <div className="flex items-center gap-2 shrink-0">
-            <div className="w-20">
-              <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                <div 
-                  className="h-full rounded-full bg-gradient-to-r from-primary to-cyan-400 relative overflow-hidden"
-                  style={{ width: `${totalProgress}%` }}
-                >
-                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-[shimmer_2s_infinite]" />
-                </div>
-              </div>
-            </div>
-            <ChevronRight className={cn(
-              'w-4 h-4 text-muted-foreground transition-transform duration-200',
-              isExpanded && 'rotate-90 text-primary'
-            )} />
+          <div className="flex items-center gap-1.5 rounded-lg border border-border/60 bg-muted/25 px-2.5 py-1 text-[10px] text-muted-foreground">
+            <BarChart3 className="h-3.5 w-3.5" aria-hidden />
+            负责人需求 {ownerCount} 条
           </div>
         </div>
 
-        {/* 展开内容 */}
-        {isExpanded && (
-          <div className="mt-4 pt-4 border-t border-border">
-            <PipelineProgress 
-              stages={requirement.stages} 
-              currentStageIndex={requirement.currentStageIndex}
-              currentStageProgress={requirement.currentStageProgress}
+        <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <OverviewStatChip
+            icon={ListTodo}
+            label="当日需求"
+            value={workItemsLength}
+            sub="列表内全部条目"
+            delayMs={100}
+          />
+          <OverviewStatChip
+            icon={Play}
+            label="进行中"
+            value={stats.running}
+            delayMs={140}
+          />
+          <OverviewStatChip
+            icon={Clock}
+            label="待确认"
+            value={stats.waiting}
+            delayMs={180}
+          />
+          <OverviewStatChip
+            icon={Target}
+            label="我的环节"
+            value={stats.mySteps}
+            sub="步骤总数"
+            delayMs={220}
+          />
+        </div>
+
+        <div className="mt-5">
+          <div className="mb-1.5 flex items-center justify-between text-xs">
+            <span className="flex items-center gap-1.5 font-medium text-muted-foreground">
+              <GitBranch className="h-3.5 w-3.5 text-primary/70" aria-hidden />
+              平均整链进度
+            </span>
+            <span className="font-mono font-semibold tabular-nums text-primary">{avgProgress}%</span>
+          </div>
+          <div className="h-2 overflow-hidden rounded-full bg-muted/80 dark:bg-muted/50">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-primary/80 via-violet-500/90 to-cyan-500/80 transition-all duration-700"
+              style={{ width: `${Math.min(100, avgProgress)}%` }}
             />
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
 }
 
-// 已完成需求项
-function CompletedItem({ item }: { item: typeof weeksData[0]['completedRequirements'][0] }) {
+function WorkItemListCard({
+  item,
+  selected,
+  onSelect,
+  index,
+}: {
+  item: WorkItemPayload;
+  selected: boolean;
+  onSelect: () => void;
+  index: number;
+}) {
   return (
-    <div className="flex items-center justify-between py-2.5 px-3 rounded-lg hover:bg-muted/30 transition-colors">
-      <div className="flex items-center gap-2">
-        <div className="w-6 h-6 rounded-full bg-emerald-500/10 flex items-center justify-center">
-          <CheckCircle className="w-3.5 h-3.5 text-emerald-500" />
-        </div>
-        <span className="text-sm text-foreground">{item.title}</span>
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        'stagger-item group w-full rounded-xl border bg-card/80 p-4 text-left transition-all duration-300',
+        'hover:-translate-y-0.5 hover:shadow-[0_12px_40px_-16px_oklch(0.45_0.15_280_/_0.35)]',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
+        selected
+          ? 'border-primary/50 bg-primary/[0.06] shadow-md ring-1 ring-primary/25'
+          : 'border-border/70 hover:border-primary/30'
+      )}
+      style={{ animationDelay: `${Math.min(index * 45, 400)}ms` }}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <h3 className="line-clamp-2 text-sm font-semibold leading-snug text-foreground group-hover:text-primary">
+          {item.title}
+        </h3>
+        <Badge variant={workItemStatusVariant(item.status)} className="shrink-0 text-[10px] font-normal">
+          {workItemStatusLabel(item.status)}
+        </Badge>
       </div>
-      <div className="flex items-center gap-3 text-xs text-muted-foreground">
-        <span>耗时 {item.duration}</span>
-        <div className="flex items-center gap-1 text-violet-500">
-          <Bot className="w-3 h-3" />
-          <span>{item.agent}</span>
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
+        <span>{item.is_owner ? '负责人' : '参与执行'}</span>
+        <span className="text-border">|</span>
+        <span className="tabular-nums">进度 {item.progress_percent}%</span>
+        {item.updated_at ? (
+          <>
+            <span className="text-border">|</span>
+            <span>
+              更新 {format(new Date(item.updated_at), 'M/d HH:mm', { locale: zhCN })}
+            </span>
+          </>
+        ) : null}
+      </div>
+      <div className="mt-3 h-1 overflow-hidden rounded-full bg-muted">
+        <div
+          className="h-full rounded-full bg-gradient-to-r from-primary/90 to-cyan-500/70 transition-all group-hover:opacity-100"
+          style={{ width: `${item.progress_percent}%` }}
+        />
+      </div>
+      <p className="mt-2 line-clamp-1 text-[11px] text-muted-foreground">
+        {item.current_step_name
+          ? `当前：${item.current_step_name}`
+          : item.steps.length === 0
+            ? '暂无流水线步骤'
+            : '—'}
+      </p>
+    </button>
+  );
+}
+
+/**
+ * 对齐参考稿与 /work-items/[id]：标题区、待确认提示、横向管道、当前阶段卡、页脚时间
+ */
+function RequirementReferencePanel({
+  item,
+  developerId,
+}: {
+  item: WorkItemPayload;
+  developerId: number;
+}) {
+  const p = item.pipeline_run;
+  const strip = statusStripClass[item.status] ?? 'bg-muted';
+
+  const activeStep = useMemo(() => {
+    if (item.steps.length === 0) return null;
+    return (
+      item.steps.find(
+        (s) => s.status === 'RUNNING' || s.status === 'WAITING_APPROVAL'
+      ) ??
+      item.steps.find((s) => s.status === 'PENDING') ??
+      item.steps[item.steps.length - 1]
+    );
+  }, [item.steps]);
+
+  const detailShellClass = cn(
+    'relative isolate overflow-hidden rounded-2xl',
+    'border-2 border-border/90 bg-card shadow-xl',
+    'dark:border-border dark:bg-[oklch(0.15_0.022_280_/_0.97)]',
+    'dark:shadow-[0_20px_50px_-12px_rgba(0,0,0,0.55)]',
+    'ring-1 ring-primary/15 dark:ring-primary/25'
+  );
+
+  if (item.steps.length === 0) {
+    return (
+      <div className={detailShellClass}>
+        <div
+          className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-primary/[0.06] to-transparent dark:from-primary/[0.08]"
+          aria-hidden
+        />
+        <div className={cn('relative z-10 h-1.5', strip)} />
+        <div className="relative z-10 space-y-3 p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <h3 className="text-base font-bold text-foreground">{item.title}</h3>
+            <Badge variant={workItemStatusVariant(item.status)} className="shrink-0">
+              {workItemStatusLabel(item.status)}
+            </Badge>
+          </div>
+          <div className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-8 text-center text-xs text-muted-foreground">
+            该需求暂无流水线步骤，可在需求详情中查看完整信息。
+            <div className="mt-3 flex justify-center gap-2">
+              <Button size="sm" variant="outline" asChild>
+                <Link href={`/work-items/${item.id}`}>
+                  <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                  打开需求详情
+                </Link>
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={detailShellClass}>
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-primary/[0.06] to-transparent dark:from-primary/[0.08]"
+        aria-hidden
+      />
+      <div className={cn('relative z-10 h-1.5', strip)} />
+      <div className="relative z-10 space-y-5 p-4 sm:p-6">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div className="min-w-0 flex-1 space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-lg font-bold tracking-tight text-foreground md:text-xl">
+                {item.title}
+              </h3>
+              <Badge variant={workItemStatusVariant(item.status)} className="font-normal">
+                {workItemStatusLabel(item.status)}
+              </Badge>
+              {item.steps.some((s) => s.worker_id === developerId) ? (
+                <Badge variant="outline" className="text-[10px] font-normal">
+                  含我的环节
+                </Badge>
+              ) : null}
+            </div>
+            {item.description ? (
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                <span className="font-medium text-foreground/80">需求描述：</span>
+                {item.description}
+              </p>
+            ) : null}
+            {item.status === 'WAITING_APPROVAL' && (
+              <div className="flex gap-2 rounded-xl border border-amber-200/80 bg-amber-50/90 px-3 py-2.5 text-sm text-amber-950 dark:border-amber-800/50 dark:bg-amber-950/35 dark:text-amber-100">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                <span>请确认当前阶段交付物或技术方案，确认后将进入下一阶段。</span>
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-muted-foreground">当前阶段</span>
+              <Badge variant="outline" className="border-primary/35 bg-primary/5 text-xs font-normal text-primary">
+                {item.current_step_name ?? activeStep?.step_name ?? '—'}
+              </Badge>
+              {p ? (
+                <span className="text-[11px] text-muted-foreground">
+                  已完成 {p.completed_steps}/{p.total_steps} 步
+                </span>
+              ) : null}
+            </div>
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-2 md:flex-col md:items-end">
+            <Button variant="outline" size="sm" className="rounded-xl" disabled title="即将支持">
+              <Pause className="mr-1.5 h-4 w-4" />
+              暂停
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-xl text-destructive border-destructive/35"
+              disabled
+              title="即将支持"
+            >
+              <X className="mr-1.5 h-4 w-4" />
+              取消
+            </Button>
+            <Button size="sm" variant="secondary" className="rounded-xl" asChild>
+              <Link href={`/work-items/${item.id}`}>
+                <ExternalLink className="mr-1.5 h-4 w-4" />
+                完整详情
+              </Link>
+            </Button>
+          </div>
+        </div>
+
+        {/* 开发进度管道 */}
+        <div>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h4 className="flex items-center gap-2 text-base font-semibold text-foreground">
+              <Play className="h-5 w-5 text-primary" />
+              开发进度管道
+            </h4>
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/12 text-sm font-bold text-primary ring-2 ring-primary/25">
+              {item.progress_percent}%
+            </div>
+          </div>
+
+          <div className="overflow-x-auto pb-2">
+            <div className="flex w-full min-w-[520px] items-center px-0.5">
+              {item.steps.map((step, i) => {
+                const isCompleted = step.status === 'DONE' || step.status === 'SKIPPED';
+                const isRunning =
+                  step.status === 'RUNNING' || step.status === 'WAITING_APPROVAL';
+                const isFailed = step.status === 'FAILED';
+                const showPct = isRunning;
+                return (
+                  <Fragment key={step.id}>
+                    <div className="flex min-w-0 flex-1 flex-col items-center px-0.5">
+                      <div
+                        className={cn(
+                          'pipeline-node-circle relative z-10 transition-transform duration-300',
+                          isCompleted && 'pipeline-node-circle completed',
+                          isRunning &&
+                            'pipeline-node-circle running scale-[1.06] ring-4 ring-primary/35 ring-offset-2 ring-offset-background shadow-lg',
+                          !isCompleted && !isRunning && !isFailed && 'pipeline-node-circle pending',
+                          isFailed &&
+                            'border-2 border-destructive bg-destructive/15 text-destructive'
+                        )}
+                      >
+                        {isCompleted ? (
+                          <Check className="h-5 w-5" strokeWidth={3} />
+                        ) : (
+                          <span className="text-[11px] font-semibold">
+                            {step.assignee?.name?.slice(0, 2) || '·'}
+                          </span>
+                        )}
+                      </div>
+                      <span
+                        className={cn(
+                          'mt-2 block max-w-full truncate px-0.5 text-center text-[11px] font-medium leading-tight',
+                          isCompleted && 'text-emerald-600 dark:text-emerald-400',
+                          isRunning && 'text-primary',
+                          !isCompleted && !isRunning && 'text-muted-foreground',
+                          isFailed && 'text-destructive'
+                        )}
+                        title={step.step_name}
+                      >
+                        {step.step_name}
+                      </span>
+                      {showPct ? (
+                        <span className="text-[11px] font-semibold tabular-nums text-primary">
+                          {phaseSubProgress(step)}%
+                        </span>
+                      ) : (
+                        <span className="h-4" aria-hidden />
+                      )}
+                      <span className="mt-0.5 block max-w-full truncate text-center text-[10px] text-muted-foreground">
+                        {step.assignee?.name ?? `#${step.worker_id}`}
+                        {step.worker_id === developerId ? ' · 我' : ''}
+                      </span>
+                    </div>
+                    {i < item.steps.length - 1 ? (
+                      <div
+                        className={cn(
+                          'pipeline-connector h-[3px] min-w-[6px] shrink rounded-full',
+                          item.steps[i]?.status === 'DONE' || item.steps[i]?.status === 'SKIPPED'
+                            ? 'pipeline-connector completed'
+                            : item.steps[i]?.status === 'RUNNING' ||
+                                item.steps[i]?.status === 'WAITING_APPROVAL'
+                              ? 'pipeline-connector running'
+                              : 'bg-muted dark:bg-muted/60'
+                        )}
+                      />
+                    ) : null}
+                  </Fragment>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="mt-4 px-0.5">
+            <div className="mb-2 flex justify-between text-[11px] text-muted-foreground">
+              <span>开始</span>
+              <span>完成</span>
+            </div>
+            <div className="relative h-2.5 overflow-hidden rounded-full bg-muted/80 dark:bg-muted/40">
+              <div
+                className="relative h-full rounded-full bg-gradient-to-r from-violet-500 via-primary to-cyan-500 transition-[width] duration-700 ease-out"
+                style={{ width: `${Math.min(100, Math.max(0, item.progress_percent))}%` }}
+              >
+                <div className="absolute inset-0 progress-shimmer opacity-60" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 当前阶段详情卡 */}
+        {activeStep ? (
+          <div className="rounded-2xl border border-border/60 bg-gradient-to-br from-card to-muted/15 p-4 shadow-sm dark:from-card dark:to-muted/10 sm:p-5">
+            <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="mb-1 text-xs text-muted-foreground">当前阶段</p>
+                <h4 className="text-base font-semibold text-foreground sm:text-lg">
+                  {activeStep.step_name}
+                </h4>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {activeStep.status === 'RUNNING' || activeStep.status === 'WAITING_APPROVAL' ? (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-medium text-primary">
+                    <span className="relative flex h-2 w-2">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/50 opacity-75" />
+                      <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
+                    </span>
+                    {stepStatusLabel(activeStep.status)}
+                  </span>
+                ) : (
+                  <Badge variant="secondary" className="text-xs">
+                    {stepStatusLabel(activeStep.status)}
+                  </Badge>
+                )}
+                {activeStep.assignee ? (
+                  <Link
+                    href={`/workers/${activeStep.assignee.id}`}
+                    className="flex items-center gap-2 rounded-xl bg-muted/50 px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-muted"
+                  >
+                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-primary/90 to-primary text-xs text-primary-foreground">
+                      {activeStep.assignee.name.slice(0, 2)}
+                    </span>
+                    {activeStep.assignee.name}
+                  </Link>
+                ) : null}
+              </div>
+            </div>
+            <p className="mb-4 line-clamp-3 text-sm text-muted-foreground">
+              {stepActivityText(activeStep)}
+            </p>
+            <div className="space-y-2">
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>阶段进度</span>
+                <span className="font-mono font-semibold tabular-nums text-foreground">
+                  {phaseSubProgress(activeStep)}%
+                </span>
+              </div>
+              <div className="h-3 overflow-hidden rounded-full bg-muted/80">
+                <div
+                  className="relative h-full rounded-full bg-gradient-to-r from-indigo-500 via-primary to-violet-500 transition-all duration-500"
+                  style={{
+                    width: `${Math.min(100, Math.max(0, phaseSubProgress(activeStep)))}%`,
+                  }}
+                >
+                  <div className="absolute inset-0 progress-shimmer opacity-70" />
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="flex flex-col gap-2 border-t border-border/50 pt-3 text-[11px] text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+          <span className="flex items-center gap-1.5">
+            <CalendarIcon className="h-3.5 w-3.5 shrink-0" />
+            创建时间{' '}
+            {format(new Date(item.created_at), 'yyyy-MM-dd HH:mm', { locale: zhCN })}
+          </span>
+          {item.updated_at ? (
+            <span className="flex items-center gap-1.5">
+              <Clock className="h-3.5 w-3.5 shrink-0" />
+              更新时间{' '}
+              {format(new Date(item.updated_at), 'yyyy-MM-dd HH:mm', { locale: zhCN })}
+            </span>
+          ) : null}
         </div>
       </div>
     </div>
@@ -396,309 +769,302 @@ function CompletedItem({ item }: { item: typeof weeksData[0]['completedRequireme
 export default function DeveloperDetailPage() {
   const router = useRouter();
   const params = useParams();
-  const [expandedId, setExpandedId] = useState<number | null>(null);
-  const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
+  const idParam = params?.id;
+  const developerId = typeof idParam === 'string' ? parseInt(idParam, 10) : NaN;
 
-  const developer = mockDeveloper;
-  const roleCfg = roleConfig[developer.position] || roleConfig['全栈工程师'];
-  const currentWeek = weeksData[currentWeekIndex];
-  
-  const workHoursPercent = Math.round((developer.weeklyStats.workHours / developer.weeklyStats.targetHours) * 100);
-  const activeCount = currentWeek.requirements.length;
-  const completedCount = currentWeek.completedRequirements.length;
+  const [selectedDate, setSelectedDate] = useState(todayYmdLocal);
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [worker, setWorker] = useState<WorkerPayload | null>(null);
+  const [workItems, setWorkItems] = useState<WorkItemPayload[]>([]);
+  const [meta, setMeta] = useState<{ selectedDate: string; isToday: boolean } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedWorkItemId, setSelectedWorkItemId] = useState<number | null>(null);
+
+  const load = useCallback(async () => {
+    if (!Number.isFinite(developerId)) {
+      setError('无效的开发者 ID');
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/spark/workers/${developerId}?date=${encodeURIComponent(selectedDate)}`
+      );
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        setError(json.error || '加载失败');
+        setWorker(null);
+        setWorkItems([]);
+        setMeta(null);
+        return;
+      }
+      setWorker(json.data.worker);
+      setWorkItems(json.data.workItems || []);
+      setMeta(json.data.meta);
+    } catch {
+      setError('网络错误');
+      setWorker(null);
+      setWorkItems([]);
+      setMeta(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [developerId, selectedDate]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  useEffect(() => {
+    if (workItems.length === 0) {
+      setSelectedWorkItemId(null);
+      return;
+    }
+    setSelectedWorkItemId((prev) =>
+      prev != null && workItems.some((w) => w.id === prev) ? prev : workItems[0].id
+    );
+  }, [workItems]);
+
+  const headerDateLabel = useMemo(() => {
+    const d = meta?.selectedDate ?? selectedDate;
+    try {
+      return format(parseYmd(d), 'yyyy年M月d日 EEEE', { locale: zhCN });
+    } catch {
+      return d;
+    }
+  }, [meta?.selectedDate, selectedDate]);
+
+  const sortedWorkItems = useMemo(
+    () =>
+      [...workItems].sort((a, b) => {
+        const ta = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+        const tb = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+        return tb - ta;
+      }),
+    [workItems]
+  );
+
+  const selectedItem = useMemo(
+    () => sortedWorkItems.find((w) => w.id === selectedWorkItemId) ?? null,
+    [sortedWorkItems, selectedWorkItemId]
+  );
+
+  const headerDateShort = useMemo(() => {
+    const d = meta?.selectedDate ?? selectedDate;
+    try {
+      return format(parseYmd(d), 'yyyy/MM/dd', { locale: zhCN });
+    } catch {
+      return d;
+    }
+  }, [meta?.selectedDate, selectedDate]);
+
+  const avgProgress = useMemo(() => {
+    if (workItems.length === 0) return 0;
+    return Math.round(
+      workItems.reduce((s, w) => s + w.progress_percent, 0) / workItems.length
+    );
+  }, [workItems]);
+
+  const stats = useMemo(() => {
+    const running = workItems.filter((w) => w.status === 'RUNNING').length;
+    const waiting = workItems.filter((w) => w.status === 'WAITING_APPROVAL').length;
+    const mySteps = workItems.reduce(
+      (n, w) => n + w.steps.filter((s) => s.worker_id === developerId).length,
+      0
+    );
+    const ownerCount = workItems.filter((w) => w.is_owner).length;
+    return { running, waiting, mySteps, ownerCount };
+  }, [workItems, developerId]);
+
+  const collaborators = useMemo(() => {
+    const m = new Map<number, { name: string; position: string }>();
+    for (const w of workItems) {
+      for (const s of w.steps) {
+        if (s.worker_id === developerId) continue;
+        if (s.assignee) {
+          m.set(s.assignee.id, {
+            name: s.assignee.name,
+            position: s.assignee.position,
+          });
+        }
+      }
+    }
+    return [...m.entries()]
+      .map(([id, v]) => ({ id, ...v }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+  }, [workItems, developerId]);
 
   return (
     <KanbanLayout>
       <div className="min-h-screen">
-        {/* 顶部导航栏 */}
-        <div className="sticky top-0 z-20 bg-background/80 backdrop-blur-xl border-b border-border/50">
-          <div className="max-w-7xl mx-auto px-6 py-3">
-            <div className="flex items-center justify-between">
-              {/* 返回按钮 */}
-              <button 
-                onClick={() => router.back()} 
-                className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-all group"
-              >
-                <div className="w-8 h-8 rounded-lg bg-muted/50 flex items-center justify-center group-hover:bg-primary/10 group-hover:shadow-[0_0_12px_rgba(59,130,246,0.3)] transition-all">
-                  <ArrowLeft className="w-4 h-4 group-hover:text-primary" />
-                </div>
-                <span className="text-sm font-medium">返回列表</span>
-              </button>
-
-              {/* 周切换器 */}
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2 bg-muted/30 rounded-xl p-1">
-                  <button
-                    onClick={() => setCurrentWeekIndex(Math.min(currentWeekIndex + 1, weeksData.length - 1))}
-                    disabled={currentWeekIndex >= weeksData.length - 1}
-                    className={cn(
-                      'w-8 h-8 rounded-lg flex items-center justify-center transition-all',
-                      currentWeekIndex >= weeksData.length - 1
-                        ? 'text-muted-foreground/30 cursor-not-allowed'
-                        : 'text-muted-foreground hover:text-foreground hover:bg-background'
-                    )}
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  
-                  <div className="flex items-center gap-2 px-3">
-                    <Calendar className="w-4 h-4 text-primary" />
-                    <span className="font-medium text-foreground">{currentWeek.weekLabel}</span>
-                    <span className="text-sm text-muted-foreground">{currentWeek.weekRange}</span>
-                  </div>
-                  
-                  <button
-                    onClick={() => setCurrentWeekIndex(Math.max(currentWeekIndex - 1, 0))}
-                    disabled={currentWeekIndex <= 0}
-                    className={cn(
-                      'w-8 h-8 rounded-lg flex items-center justify-center transition-all',
-                      currentWeekIndex <= 0
-                        ? 'text-muted-foreground/30 cursor-not-allowed'
-                        : 'text-muted-foreground hover:text-foreground hover:bg-background'
-                    )}
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
-
-                {/* 快速跳转标签 */}
-                <div className="flex items-center gap-1">
-                  {weeksData.map((week, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => setCurrentWeekIndex(idx)}
-                      className={cn(
-                        'px-3 py-1.5 rounded-lg text-xs font-medium transition-all',
-                        idx === currentWeekIndex
-                          ? 'bg-primary text-white shadow-[0_0_12px_rgba(59,130,246,0.4)]'
-                          : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-                      )}
-                    >
-                      {week.weekLabel}
-                    </button>
-                  ))}
+        <header className="sticky top-0 z-20 border-b border-border bg-background/90 backdrop-blur-md">
+          <div className="mx-auto flex max-w-[1760px] flex-col gap-1.5 px-4 py-2.5 sm:px-6 lg:px-8">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => router.push('/developers')}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  aria-label="返回开发者列表"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </button>
+                <div className="min-w-0">
+                  <h1 className="truncate text-sm font-semibold text-foreground sm:text-base">
+                    开发者工作台
+                  </h1>
+                  <p className="truncate text-[11px] text-muted-foreground">{headerDateLabel}</p>
                 </div>
               </div>
-            </div>
-          </div>
-        </div>
-
-        {/* 主内容区 */}
-        <div className="max-w-7xl mx-auto px-6 py-6">
-          {/* 信息概览区 */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-            {/* 开发者档案卡片 */}
-            <div className="bg-card rounded-2xl border border-border p-5 relative overflow-hidden">
-              {/* 背景装饰 */}
-              <div className={cn(
-                'absolute -top-20 -right-20 w-40 h-40 rounded-full blur-3xl opacity-30',
-                'bg-gradient-to-br',
-                roleCfg.gradient
-              )} />
-              
-              <div className="relative">
-                <div className="flex items-start gap-4">
-                  {/* 头像 */}
-                  <div 
-                    className={cn(
-                      'w-16 h-16 rounded-xl flex items-center justify-center text-white text-xl font-bold shadow-lg',
-                      'bg-gradient-to-br',
-                      roleCfg.gradient
-                    )}
-                    style={{ boxShadow: `0 8px 32px ${roleCfg.glowColor}` }}
+              <div className="flex items-center gap-1.5">
+                <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
+                      <CalendarDays className="h-3.5 w-3.5 opacity-70" />
+                      {meta?.isToday ? '今天' : '日期'}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="end">
+                    <Calendar
+                      mode="single"
+                      locale={zhCN}
+                      selected={parseYmd(selectedDate)}
+                      onSelect={(d) => {
+                        if (d) {
+                          setSelectedDate(format(d, 'yyyy-MM-dd'));
+                          setCalendarOpen(false);
+                        }
+                      }}
+                      defaultMonth={parseYmd(selectedDate)}
+                    />
+                  </PopoverContent>
+                </Popover>
+                {!meta?.isToday ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 text-xs text-primary"
+                    onClick={() => setSelectedDate(todayYmdLocal())}
                   >
-                    {developer.name.slice(0, 2)}
+                    回到今天
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+            <p className="text-[10px] leading-snug text-muted-foreground">
+              所选日期按上海时区关联步骤时间；「今天」仅展示进行中的负责或参与需求。
+            </p>
+          </div>
+        </header>
+
+        <main className="mx-auto max-w-[1760px] space-y-3 px-4 py-3 sm:px-6 sm:py-4 lg:px-8">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center gap-2 py-20 text-muted-foreground">
+              <Loader2 className="h-7 w-7 animate-spin text-primary" />
+              <p className="text-xs">加载中…</p>
+            </div>
+          ) : error ? (
+            <div className="rounded-lg border border-destructive/30 bg-card p-6 text-center">
+              <p className="text-sm text-destructive">{error}</p>
+              <Button variant="outline" size="sm" className="mt-3" onClick={() => load()}>
+                重试
+              </Button>
+            </div>
+          ) : worker ? (
+            <div className="relative pb-8">
+              <div
+                className="pointer-events-none absolute inset-0 -z-10 min-h-[120%] bg-gradient-mesh opacity-80 dark:opacity-100"
+                aria-hidden
+              />
+              <div className="relative space-y-8">
+                <div className="grid items-start gap-5 lg:grid-cols-12 lg:gap-6">
+                  <div className="lg:col-span-5 xl:col-span-4">
+                    <UserProfilePanel
+                      worker={worker}
+                      collaborators={collaborators}
+                      viewLabel={headerDateLabel}
+                    />
                   </div>
-                  
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-1">
-                      <h2 className="text-xl font-bold text-foreground">{developer.name}</h2>
-                      <div className={cn(
-                        'flex items-center gap-1.5 text-xs font-medium',
-                        developer.online ? 'text-emerald-500' : 'text-muted-foreground'
-                      )}>
-                        <span className={cn(
-                          'w-2 h-2 rounded-full',
-                          developer.online && 'bg-emerald-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] animate-pulse'
-                        )} />
-                        {developer.online ? '在线' : '离线'}
-                      </div>
+                  <div className="lg:col-span-7 xl:col-span-8">
+                    <OverviewPanel
+                      workItemsLength={workItems.length}
+                      stats={stats}
+                      avgProgress={avgProgress}
+                      ownerCount={stats.ownerCount}
+                      headerDateShort={headerDateShort}
+                      isToday={meta?.isToday ?? true}
+                    />
+                  </div>
+                </div>
+
+                <section className="space-y-4">
+                  <div className="flex flex-wrap items-end justify-between gap-3 border-b border-border/40 pb-3">
+                    <div>
+                      <h2 className="text-base font-bold tracking-tight text-foreground sm:text-lg">
+                        需求列表
+                      </h2>
+                      <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground">
+                        点击卡片查看该需求的进度管道与阶段详情。按更新时间排序，共{' '}
+                        <span className="font-medium text-foreground">{sortedWorkItems.length}</span>{' '}
+                        条。
+                      </p>
                     </div>
-                    <p className="text-muted-foreground">{developer.position}</p>
-                    
-                    {/* 技术栈 */}
-                    <div className="flex flex-wrap gap-1.5 mt-3">
-                      {developer.techStack.map((tech) => (
-                        <span 
-                          key={tech}
-                          className="px-2 py-0.5 rounded-md text-xs font-medium bg-muted/50 text-muted-foreground border border-border"
-                        >
-                          {tech}
-                        </span>
+                  </div>
+                  {sortedWorkItems.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-border/80 bg-muted/10 px-6 py-20 text-center">
+                      <p className="text-sm text-muted-foreground">
+                        {meta?.isToday
+                          ? '当前没有进行中的相关需求。'
+                          : '该日没有与你关联的步骤或需求更新。'}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                      {sortedWorkItems.map((item, i) => (
+                        <WorkItemListCard
+                          key={item.id}
+                          item={item}
+                          selected={item.id === selectedWorkItemId}
+                          onSelect={() => setSelectedWorkItemId(item.id)}
+                          index={i}
+                        />
                       ))}
                     </div>
-                  </div>
-                </div>
+                  )}
+                </section>
 
-                {/* 本周成就 */}
-                <div className="mt-5 p-4 rounded-xl bg-gradient-to-br from-muted/30 to-muted/10 border border-border">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Trophy className="w-4 h-4 text-amber-500" />
-                    <span className="text-sm font-medium text-foreground">本周成就</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    {developer.achievements.map((achievement, idx) => (
-                      <div 
-                        key={idx}
-                        className={cn(
-                          'flex items-center gap-2 px-3 py-2 rounded-lg text-xs',
-                          achievement.highlight 
-                            ? 'bg-amber-500/10 text-amber-600 border border-amber-500/20' 
-                            : 'bg-muted/50 text-muted-foreground'
-                        )}
-                      >
-                        <span>{achievement.icon}</span>
-                        <span className="font-medium">{achievement.label}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                {selectedItem ? (
+                  <section className="space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/40 pb-2">
+                      <h2 className="text-base font-bold tracking-tight text-foreground sm:text-lg">
+                        当前需求详情
+                      </h2>
+                      <span className="text-xs text-muted-foreground">
+                        与「需求详情」页进度区样式对齐
+                      </span>
+                    </div>
+                    <RequirementReferencePanel
+                      item={selectedItem}
+                      developerId={developerId}
+                    />
+                  </section>
+                ) : sortedWorkItems.length > 0 ? (
+                  <p className="py-8 text-center text-sm text-muted-foreground">
+                    请从上方需求列表中选择一条以查看详情。
+                  </p>
+                ) : null}
+
+                <Separator className="opacity-40" />
+                <p className="text-center text-[10px] text-muted-foreground">
+                  数据来自星火流水线（work_items / pipeline_runs / step_runs），与需求看板保持一致。
+                </p>
               </div>
             </div>
-
-            {/* 本周概览卡片 */}
-            <div className="bg-card rounded-2xl border border-border p-5">
-              <div className="flex items-center gap-2 mb-4">
-                <TrendingUp className="w-5 h-5 text-primary" />
-                <h3 className="font-semibold text-foreground">本周概览</h3>
-              </div>
-
-              {/* 工时统计 */}
-              <div className="mb-5">
-                <div className="flex items-end justify-between mb-2">
-                  <div>
-                    <span className="text-3xl font-bold text-foreground" style={{ textShadow: '0 0 20px rgba(59, 130, 246, 0.3)' }}>
-                      {developer.weeklyStats.workHours}
-                    </span>
-                    <span className="text-lg text-muted-foreground"> / {developer.weeklyStats.targetHours}h</span>
-                  </div>
-                  <span className="text-sm font-medium text-primary">{workHoursPercent}%</span>
-                </div>
-                <div className="h-2 bg-muted rounded-full overflow-hidden">
-                  <div 
-                    className="h-full rounded-full bg-gradient-to-r from-primary to-cyan-400 relative overflow-hidden"
-                    style={{ width: `${workHoursPercent}%` }}
-                  >
-                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-[shimmer_2s_infinite]" />
-                  </div>
-                </div>
-              </div>
-
-              {/* 每日工时 */}
-              <div className="mb-5">
-                <p className="text-xs text-muted-foreground mb-2">每日工时</p>
-                <div className="flex items-end justify-between gap-2">
-                  {developer.weeklyStats.dailyHours.map((day) => {
-                    const heightPercent = (day.hours / 10) * 100;
-                    return (
-                      <div key={day.day} className="flex-1 flex flex-col items-center gap-1">
-                        <div className="w-full h-20 bg-muted/30 rounded-lg overflow-hidden flex flex-col justify-end">
-                          <div 
-                            className={cn(
-                              'w-full rounded-t transition-all duration-500',
-                              day.isToday 
-                                ? 'bg-gradient-to-t from-primary to-cyan-400 shadow-[0_-4px_12px_rgba(59,130,246,0.4)]' 
-                                : 'bg-gradient-to-t from-primary/60 to-cyan-400/60'
-                            )}
-                            style={{ height: `${heightPercent}%` }}
-                          />
-                        </div>
-                        <span className={cn(
-                          'text-[10px] font-medium',
-                          day.isToday ? 'text-primary' : 'text-muted-foreground'
-                        )}>
-                          {day.day}
-                        </span>
-                        <span className="text-[10px] text-muted-foreground">{day.hours}h</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* 常协作Agent */}
-              <div className="flex items-center justify-between p-3 rounded-xl bg-muted/30">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-purple-500 flex items-center justify-center">
-                    <Bot className="w-4 h-4 text-white" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{developer.weeklyStats.topAgent.name}</p>
-                    <p className="text-xs text-muted-foreground">常协作 Agent</p>
-                  </div>
-                </div>
-                <span className="text-sm font-bold text-violet-500">{developer.weeklyStats.topAgent.count}次</span>
-              </div>
-            </div>
-          </div>
-
-          {/* 需求列表区 */}
-          <div className="bg-card rounded-2xl border border-border overflow-hidden mb-6">
-            <div className="p-5 border-b border-border flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Code className="w-5 h-5 text-primary" />
-                <h3 className="font-semibold text-foreground">需求列表</h3>
-              </div>
-              <span className="text-xs px-2.5 py-1 rounded-full bg-primary/10 text-primary font-medium">
-                进行中 {activeCount}
-              </span>
-            </div>
-            
-            <div className="p-4 space-y-3">
-              {currentWeek.requirements.length > 0 ? (
-                currentWeek.requirements.map((req) => (
-                  <RequirementCard
-                    key={req.id}
-                    requirement={req}
-                    isExpanded={expandedId === req.id}
-                    onToggle={() => setExpandedId(expandedId === req.id ? null : req.id)}
-                  />
-                ))
-              ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Code className="w-10 h-10 mx-auto mb-2 opacity-30" />
-                  <p>本周暂无进行中的需求</p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* 已完成需求区 */}
-          <div className="bg-card rounded-2xl border border-border overflow-hidden">
-            <div className="p-5 border-b border-border flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Award className="w-5 h-5 text-emerald-500" />
-                <h3 className="font-semibold text-foreground">已完成</h3>
-              </div>
-              <span className="text-xs px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-600 font-medium">
-                共 {completedCount} 个
-              </span>
-            </div>
-            
-            <div className="p-2">
-              {currentWeek.completedRequirements.length > 0 ? (
-                currentWeek.completedRequirements.map((item) => (
-                  <CompletedItem key={item.id} item={item} />
-                ))
-              ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Award className="w-10 h-10 mx-auto mb-2 opacity-30" />
-                  <p>本周暂无已完成的需求</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+          ) : null}
+        </main>
       </div>
     </KanbanLayout>
   );
